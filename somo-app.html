@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Somo — CBC Teacher Assistant</title>
+<style>
+  :root{
+    --page:#F6F1E4; --card:#FFFEFA; --ink:#241F16; --ink-soft:#5B5346; --ink-faint:#9A9280;
+    --rule:#DCD3BE; --rule-strong:#C7BA9C; --green:#1F4B2C; --green-light:#E4EEE1;
+    --tan:#C99862; --tan-light:#F3E4CC; --red:#A83A2C;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:system-ui,-apple-system,sans-serif;}
+  .app{max-width:900px;margin:0 auto;padding:16px 16px 60px;}
+  h1,h2,h3{font-family:Georgia,serif;font-weight:600;margin:0;}
+  .topbar{display:flex;align-items:center;gap:10px;padding:10px 0 16px;}
+  .brand-mark{width:36px;height:36px;border-radius:8px;background:var(--green);color:#F6F1E4;
+    display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:700;font-size:17px;}
+  .topbar h1{font-size:20px;}
+  .topbar p{margin:0;font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.3px;}
+
+  .tabs{display:flex;gap:6px;overflow-x:auto;border-bottom:2px solid var(--rule-strong);margin-bottom:18px;padding-bottom:0;}
+  .tab{font-size:13px;font-weight:600;padding:9px 13px;border:none;background:none;color:var(--ink-faint);
+    cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;}
+  .tab.active{color:var(--green);border-bottom-color:var(--green);}
+
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:18px;margin-bottom:16px;
+    box-shadow:0 1px 3px rgba(0,0,0,0.05);}
+  .section-title{font-size:16px;color:var(--green);margin-bottom:4px;}
+  .muted{color:var(--ink-faint);font-size:12.5px;margin-bottom:14px;}
+
+  .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media (max-width:560px){.field-grid{grid-template-columns:1fr;}}
+  label{display:block;font-size:11.5px;font-weight:600;color:var(--ink-soft);margin:0 0 4px;}
+  input[type=text],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:9px 10px;border:1.3px solid var(--rule-strong);border-radius:7px;
+    font-size:13.5px;color:var(--ink);background:#FDFCF8;margin-bottom:10px;font-family:inherit;}
+  textarea{min-height:60px;resize:vertical;}
+
+  .btn{font-weight:600;font-size:13.5px;padding:10px 18px;border-radius:8px;border:1.5px solid var(--rule-strong);
+    background:var(--card);color:var(--ink);cursor:pointer;}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#F6F1E4;}
+  .btn.small{padding:6px 12px;font-size:12px;}
+
+  .result-box{margin-top:14px;padding:14px;background:#FDFCF8;border:1px solid var(--rule);border-radius:8px;
+    font-size:13.5px;line-height:1.6;white-space:pre-wrap;}
+
+  table.plan-table{width:100%;border-collapse:collapse;margin-top:10px;}
+  table.plan-table td,table.plan-table th{border:1px solid #333;padding:6px 8px;font-size:12.5px;text-align:left;}
+  table.plan-table th{background:#999;color:#fff;}
+  .header-bar{background:#999;color:#fff;text-align:center;font-weight:700;padding:8px;border:1px solid #333;}
+
+  .row-flex{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;}
+  .stat{background:var(--green-light);border-radius:8px;padding:14px;text-align:center;flex:1;min-width:100px;}
+  .stat .num{font-family:Georgia,serif;font-size:22px;color:var(--green);}
+  .stat .lbl{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+  .list-row{display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--rule);font-size:13px;}
+  .list-row:last-child{border-bottom:none;}
+  .del-btn{background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;font-weight:600;}
+  .empty{text-align:center;padding:30px;color:var(--ink-faint);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand-mark">S</div>
+    <div>
+      <h1>Somo</h1>
+      <p>CBC lesson plans, schemes & records</p>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="content"></div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+var apiKey = "PASTE_YOUR_GEMINI_API_KEY_HERE";
+
+/* ================= STORAGE (localStorage — works on any host) ================= */
+function loadRecords(){
+  var raw = localStorage.getItem("somo_records");
+  return raw ? JSON.parse(raw) : [];
+}
+function saveRecords(records){
+  localStorage.setItem("somo_records", JSON.stringify(records));
+}
+
+/* ================= AI CALL HELPER ================= */
+function callAI(promptText, onSuccess, onError){
+  fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=" + apiKey, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (data.error) { onError("API Error: " + data.error.message); return; }
+    try {
+      var text = data.candidates[0].content.parts[0].text;
+      onSuccess(text);
+    } catch(e){
+      onError("Unexpected response from AI. Try again.");
+    }
+  })
+  .catch(function(err){ onError("Error: " + err.message); });
+}
+
+/* ================= ROUTING ================= */
+var currentTab = "dashboard";
+var tabsList = [
+  ["dashboard","Dashboard"],
+  ["lessonplan","Lesson Plan"],
+  ["scheme","Scheme of Work"],
+  ["notes","Lesson Notes"],
+  ["records","Record of Work"]
+];
+
+function renderTabs(){
+  var el = document.getElementById("tabs");
+  el.innerHTML = "";
+  tabsList.forEach(function(t){
+    var btn = document.createElement("button");
+    btn.className = "tab" + (currentTab === t[0] ? " active" : "");
+    btn.textContent = t[1];
+    btn.onclick = function(){ currentTab = t[0]; render(); };
+    el.appendChild(btn);
+  });
+}
+
+function render(){
+  renderTabs();
+  var c = document.getElementById("content");
+  if (currentTab === "dashboard") c.innerHTML = dashboardHtml();
+  else if (currentTab === "lessonplan") c.innerHTML = lessonPlanHtml();
+  else if (currentTab === "scheme") c.innerHTML = schemeHtml();
+  else if (currentTab === "notes") c.innerHTML = notesHtml();
+  else if (currentTab === "records") c.innerHTML = recordsHtml();
+
+  if (currentTab === "records") { wireRecords(); }
+}
+
+/* ================= DASHBOARD ================= */
+function dashboardHtml(){
+  var records = loadRecords();
+  return '<div class="card">' +
+    '<div class="section-title">Welcome</div>' +
+    '<div class="muted">Use the tabs above to generate a lesson plan, scheme of work, lesson notes, or log what you have covered.</div>' +
+    '<div class="row-flex">' +
+      '<div class="stat"><div class="num">' + records.length + '</div><div class="lbl">Records logged</div></div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ================= LESSON PLAN ================= */
+function lessonPlanHtml(){
+  return '<div class="card">' +
+    '<div class="section-title">Lesson Plan Generator</div>' +
+    '<div class="muted">Fill in the details below, then generate.</div>' +
+    '<div class="field-grid">' +
+      inputField("lp_school","School") + inputField("lp_teacher","Teacher's Name") +
+      inputField("lp_grade","Grade") + inputField("lp_subject","Learning Area") +
+      inputField("lp_strand","Strand") + inputField("lp_substrand","Sub-strand") +
+      inputField("lp_focus","Lesson Focus") + inputField("lp_time","Time (e.g. 35 minutes)") +
+      inputField("lp_date","Date") + inputField("lp_roll","Roll") +
+      inputField("lp_lessonnum","Lesson (e.g. 4 of 4)") +
+    '</div>' +
+    '<button class="btn primary" onclick="generateLessonPlan()">Generate Lesson Plan</button>' +
+    '<div id="lp_header"></div>' +
+    '<div id="lp_result" class="result-box" style="display:none"></div>' +
+  '</div>';
+}
+function inputField(id,label){
+  return '<div><label>' + label + '</label><input type="text" id="' + id + '"></div>';
+}
+function generateLessonPlan(){
+  var v = function(id){ return document.getElementById(id).value; };
+  var school=v("lp_school"), teacher=v("lp_teacher"), grade=v("lp_grade"), subject=v("lp_subject"),
+      strand=v("lp_strand"), substrand=v("lp_substrand"), focus=v("lp_focus"), time=v("lp_time"),
+      date=v("lp_date"), roll=v("lp_roll"), lessonnum=v("lp_lessonnum");
+
+  var headerHtml = "<table class='plan-table'>" +
+    "<tr><td colspan='2' class='header-bar'>LESSON PLAN</td></tr>" +
+    "<tr><td><b>School:</b> " + school + "</td><td><b>Teacher:</b> " + teacher + "</td></tr>" +
+    "<tr><td><b>Level:</b> " + grade + "</td><td><b>Learning Area:</b> " + subject + "</td></tr>" +
+    "<tr><td><b>Strand:</b> " + strand + "</td><td><b>Sub-Strand:</b> " + substrand + "</td></tr>" +
+    "<tr><td><b>Date:</b> " + date + "</td><td><b>Time:</b> " + time + "</td></tr>" +
+    "<tr><td><b>Roll:</b> " + roll + "</td><td><b>Lesson:</b> " + lessonnum + "</td></tr>" +
+    "</table>";
+  document.getElementById("lp_header").innerHTML = headerHtml;
+
+  var box = document.getElementById("lp_result");
+  box.style.display = "block";
+  box.textContent = "Generating, please wait...";
+
+  var prompt = "You are a Kenyan CBC curriculum expert. For a lesson on Grade " + grade + ", Subject: " + subject +
+    ", Strand: " + strand + ", Sub-strand: " + substrand + ", Lesson Focus: " + focus +
+    " — write only these sections, each with an exact heading on its own line, no header details: " +
+    "Specific Learning Outcomes (lettered list a,b,c), Key Inquiry Question, Core Competencies, Values, " +
+    "Learning Resources, Organisation of Learning (Introduction with time, Lesson Development with time, Conclusion with time), " +
+    "Extended Activity, Teacher Self-Evaluation (leave blank, just heading). Practical for a real Kenyan classroom. No markdown symbols.";
+
+  callAI(prompt, function(text){ box.textContent = text; }, function(err){ box.textContent = err; });
+}
+
+/* ================= SCHEME OF WORK ================= */
+function schemeHtml(){
+  return '<div class="card">' +
+    '<div class="section-title">Scheme of Work Generator</div>' +
+    '<div class="muted">Generates a week-by-week table for a full term.</div>' +
+    '<div class="field-grid">' +
+      inputField("som_grade","Grade") + inputField("som_subject","Subject") +
+      inputField("som_term","Term (e.g. Term 2)") + inputField("som_weeks","Number of weeks") +
+    '</div>' +
+    '<button class="btn primary" onclick="generateScheme()">Generate Scheme of Work</button>' +
+    '<div id="som_result" class="result-box" style="display:none"></div>' +
+  '</div>';
+}
+function generateScheme(){
+  var v = function(id){ return document.getElementById(id).value; };
+  var grade=v("som_grade"), subject=v("som_subject"), term=v("som_term"), weeks=v("som_weeks");
+  var box = document.getElementById("som_result");
+  box.style.display = "block";
+  box.textContent = "Generating, please wait...";
+
+  var prompt = "You are a Kenyan CBC curriculum expert. Create a scheme of work for Grade " + grade +
+    ", Subject: " + subject + ", " + term + ", covering " + weeks + " weeks, 1 lesson per week. " +
+    "For each week give, clearly labelled: Week number, Strand, Sub-strand, Specific Learning Outcomes (short), " +
+    "Key Inquiry Question, Learning Resources, Assessment Method, Reflection (leave blank). " +
+    "Start each week with the heading 'Week X'. No markdown symbols like # or * or | tables, plain text with labels.";
+
+  callAI(prompt, function(text){ box.textContent = text; }, function(err){ box.textContent = err; });
+}
+
+/* ================= LESSON NOTES ================= */
+function notesHtml(){
+  return '<div class="card">' +
+    '<div class="section-title">Lesson Notes Generator</div>' +
+    '<div class="muted">Generates classroom teaching notes/content for a topic (not the lesson plan itself).</div>' +
+    '<div class="field-grid">' +
+      inputField("ln_grade","Grade") + inputField("ln_subject","Subject") +
+      inputField("ln_strand","Strand") + inputField("ln_substrand","Sub-strand") +
+      inputField("ln_topic","Specific Topic") +
+    '</div>' +
+    '<button class="btn primary" onclick="generateNotes()">Generate Lesson Notes</button>' +
+    '<div id="ln_result" class="result-box" style="display:none"></div>' +
+  '</div>';
+}
+function generateNotes(){
+  var v = function(id){ return document.getElementById(id).value; };
+  var grade=v("ln_grade"), subject=v("ln_subject"), strand=v("ln_strand"), substrand=v("ln_substrand"), topic=v("ln_topic");
+  var box = document.getElementById("ln_result");
+  box.style.display = "block";
+  box.textContent = "Generating, please wait...";
+
+  var prompt = "You are a Kenyan CBC curriculum expert. Write clear, accurate classroom teaching notes " +
+    "(the actual content/explanation a teacher would present, not a lesson plan) for Grade " + grade +
+    ", Subject: " + subject + ", Strand: " + strand + ", Sub-strand: " + substrand + ", Topic: " + topic +
+    ". Include a short introduction to the topic, the main content explained simply with examples, " +
+    "and 2-3 short practice questions at the end with a heading 'Practice Questions'. " +
+    "Language should be age-appropriate for the grade level. No markdown symbols.";
+
+  callAI(prompt, function(text){ box.textContent = text; }, function(err){ box.textContent = err; });
+}
+
+/* ================= RECORD OF WORK COVERED ================= */
+function recordsHtml(){
+  var records = loadRecords();
+  var rowsHtml = "";
+  if (records.length === 0){
+    rowsHtml = '<div class="empty">No records logged yet. Add your first one below.</div>';
+  } else {
+    records.slice().reverse().forEach(function(r, revIndex){
+      var realIndex = records.length - 1 - revIndex;
+      rowsHtml += '<div class="list-row"><div><b>' + escapeHtml(r.date) + '</b> — ' + escapeHtml(r.grade) +
+        ' ' + escapeHtml(r.subject) + ': ' + escapeHtml(r.topic) +
+        (r.remarks ? ' <span style="color:var(--ink-faint)">(' + escapeHtml(r.remarks) + ')</span>' : '') +
+        '</div><button class="del-btn" onclick="deleteRecord(' + realIndex + ')">Delete</button></div>';
+    });
+  }
+
+  return '<div class="card">' +
+    '<div class="section-title">Log a Record</div>' +
+    '<div class="muted">Keep a running record of what you have actually covered in class.</div>' +
+    '<div class="field-grid">' +
+      inputField("rec_date","Date") + inputField("rec_grade","Grade") +
+      inputField("rec_subject","Subject") + inputField("rec_topic","Topic/Lesson Covered") +
+    '</div>' +
+    '<div><label>Remarks (optional)</label><textarea id="rec_remarks"></textarea></div>' +
+    '<button class="btn primary" id="rec_add_btn">Add Record</button>' +
+  '</div>' +
+  '<div class="card">' +
+    '<div class="section-title">Records So Far</div>' +
+    rowsHtml +
+  '</div>';
+}
+function wireRecords(){
+  var btn = document.getElementById("rec_add_btn");
+  if (btn) btn.onclick = addRecord;
+}
+function addRecord(){
+  var v = function(id){ return document.getElementById(id).value; };
+  var date=v("rec_date"), grade=v("rec_grade"), subject=v("rec_subject"), topic=v("rec_topic"), remarks=v("rec_remarks");
+  if (!date || !grade || !subject || !topic){
+    alert("Please fill in Date, Grade, Subject and Topic before adding.");
+    return;
+  }
+  var records = loadRecords();
+  records.push({ date: date, grade: grade, subject: subject, topic: topic, remarks: remarks });
+  saveRecords(records);
+  render();
+}
+function deleteRecord(index){
+  var records = loadRecords();
+  records.splice(index, 1);
+  saveRecords(records);
+  render();
+}
+function escapeHtml(str){
+  if (!str) return "";
+  return String(str).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+/* ================= INIT ================= */
+render();
+</script>
+</body>
+</html>
